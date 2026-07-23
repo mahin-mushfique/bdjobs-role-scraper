@@ -80,15 +80,6 @@ Confirmed **live**, directly against `gateway.bdjobs.com`, not guessed:
 
 Still unverified (kept as a defensive fallback only, shouldn't matter in normal use): the Details API's own field names, sourced from the original repo's code rather than a live call. If you ever see a non-zero "Details API lookup" count and results looking off, that fallback path is where to check first.
 
-## Scheduling
-
-Linux/Mac cron, daily at 7am:
-
-```
-0 7 * * * cd /path/to/script && /usr/bin/python3 bdjobs_ecommerce_scraper.py
-```
-
-Windows Task Scheduler: daily trigger running `python bdjobs_ecommerce_scraper.py`.
 
 ## Terms of service
 
