@@ -1,195 +1,95 @@
-# Disclaimer: This scraper is bound to be brittle and may break if any of the APIs change
+# Bdjobs.com Role Search Scraper
 
-Uploaded an existing dataset on Kaggle: https://www.kaggle.com/datasets/aryanrahman/bdjobs-all-job-listings-20-november-5pm
+Searches bdjobs.com for the roles listed in `roles.csv` — using each one as a real search query against bdjobs' own API, the same as typing it into their search box — and outputs a deduplicated list of companies hiring for those roles each time you run it.
 
-Requirements:
-- Python 3.10+
+Rewritten from [Aryan3212/bdjobs-scraper](https://github.com/Aryan3212/bdjobs-scraper), which reverse-engineered bdjobs' real backend REST API (bdjobs moved to an Angular SPA, so the old HTML-scraping approach doesn't work anymore). This version calls the same two API endpoints but only pulls what's needed for a small daily lead list instead of the original's full 31-field, ~5,500-job dump.
 
-Commands:
-- Create virtual environment: `python3 -m venv venv`
-- Install dependencies: `pip install -r requirements.txt`
-- Run tests: `python3 -m unittest -v tests/test.py`
-- Run script: `python3 scraper/bdjobs.py`
+## Files
 
-# bdjobs-scraper
+| File | Purpose |
+|---|---|
+| `bdjobs_ecommerce_scraper.py` | The scraper |
+| `roles.csv` | Roles/search terms — edit this, no code changes needed |
+| `requirements.txt` | Python dependencies |
+| `seen_companies.csv` | Auto-created memory of companies already reported (so re-runs only show new ones) |
+| `bdjobs_new_companies_<date>.csv` | Auto-created output of that run's new matches |
 
-**DISCLAIMER:** This is for educational and research purposes only.
+## Setup
 
-A scraper for BDJobs.com that uses their REST API to collect comprehensive job market data from Bangladesh. The scraper extracts 31+ fields per job including salary, requirements, company info, and more.
+```bash
+pip install -r requirements.txt
+python3 bdjobs_ecommerce_scraper.py
+```
 
 ## Usage
 
-## Installation
+**Default run** — searches bdjobs for each role in `roles.csv`, 3 pages (150 results) per role:
 
 ```bash
-# Clone the repo
-git clone git@github.com:Aryan3212/bdjobs-scraper.git
-cd bdjobs-scraper
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+python3 bdjobs_ecommerce_scraper.py
 ```
-### Full Scrape
 
-Scrapes all ~5,500 jobs (takes ~20-30 minutes):
+**Custom roles file:**
 
 ```bash
-python scraper/bdjobs.py
+python3 bdjobs_ecommerce_scraper.py --roles my_roles.csv
 ```
 
-Output: `dataset/bdjobs-{timestamp}.csv`
-
-### Test with Small Sample
-
-Edit `test_quick.py` to configure:
-
-```python
-TEST_PAGES = 1        # Number of pages to fetch (50 jobs/page)
-TEST_JOBS_LIMIT = 5   # Max jobs to process (or None for all)
-```
-
-Then run:
+**Custom date range** — only include postings published within a window (uses bdjobs' `publishDate` field):
 
 ```bash
-python test_quick.py
+python3 bdjobs_ecommerce_scraper.py --start-date 2026-07-01 --end-date 2026-07-23
 ```
 
-Output: `dataset/bdjobs-test-{timestamp}.csv`
+Either flag works alone. Dates use `YYYY-MM-DD`.
 
-### Run Tests
+**More/fewer result pages per role:**
 
 ```bash
-PYTHONPATH=. python tests/test.py
+python3 bdjobs_ecommerce_scraper.py --pages-per-role 5
 ```
 
+Combine any of the above as needed.
 
-## Performance
+## How it works (roles = real searches)
 
-- **List API**: ~110 pages × 0.25s = ~28 seconds
-- **Details API**: ~5,500 jobs in batches of 20 = ~5-8 minutes
-- **Total Time**: ~10 minutes for complete dataset
-- **Output Size**: ~13MB CSV with all jobs
+Each row in `roles.csv` is sent to bdjobs as `keyword=<role>` — a real, live, server-side search (confirmed directly against `gateway.bdjobs.com`; searching "Manager" returns `total_records_found: 1672`, searching "Data Analyst" returns `1104`, out of ~5,500 total live jobs, so this is genuinely filtering, not just returning everything).
 
-## Technical Notes
-## How We Found The API
+bdjobs' own search is loose/fuzzy though — searching "Data Analyst" also returned a "Business Development Analyst" posting. To keep results precise, the script applies a confirmation check on top: only postings whose actual job title contains your role phrase are kept. This was verified against real captured API responses before shipping.
 
-The BDJobs website underwent a major overhaul, migrating from server-side rendered pages to an Angular SPA. This initially broke our HTML-based scraper, but led us to discover a much better solution.
+## Editing roles.csv
 
-### Discovery Process
-
-1. **Initial Problem**: The website changed to use JavaScript-rendered pages, making traditional HTML scraping impossible
-2. **Network Analysis**: Used browser DevTools (Network tab) to inspect XHR/Fetch requests
-3. **Found Two Key Endpoints**:
-   
-   **List API** - Returns paginated job listings:
-   ```
-   https://gateway.bdjobs.com/recruitment-account-test/api/JobSearch/GetJobSearch?isPro=1&rpp=50&pg=X
-   ```
-   - `isPro=1` returns ALL jobs (regular + premium + early access)
-   - `rpp=50` sets results per page
-   - `pg=X` is the page number
-   - Returns ~60 jobs per page (50 regular + 10 premium)
-
-   **Details API** - Returns complete job information, this URL was hidden inside the bundle used by Angular:
-   ```
-   https://gateway.bdjobs.com/ActtivejobsTest/api/JobSubsystem/jobDetails?jobId=X
-   ```
-   - Returns 31+ structured fields per job
-   - Much cleaner than parsing HTML
-   - No CSS class dependencies
-
-4. **Key Insights**:
-   - The API has no authentication requirements
-   - Rate limiting is lenient (we use 0.25s between list pages, no delay for details)
-   - Response format is consistent JSON
-   - Some fields contain HTML (we strip tags with BeautifulSoup)
-
-### Why This Is Better Than HTML Scraping
-
-| HTML Scraping (Old) | API Scraping (New) |
-|--------------------|--------------------|
-| Brittle CSS selectors(XPath is too complicated) | Structured JSON |
-| Breaks with layout changes | Stable API contract |
-| Incomplete data | 31+ comprehensive fields |
-| Slow parsing | Fast JSON parsing |
-| Complex error handling | Simple HTTP status codes |
-
-## Architecture
-
-### Current Implementation
+One role/search term per line. No header required (a header cell containing "role"/"title"/"keyword" is skipped automatically if present):
 
 ```
-┌─────────────────┐
-│   List API      │  Fetch all job IDs
-│   (110 pages)   │  0.25s delay between pages
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  ~5,500 Job IDs │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Details API    │  Batch processing (20 at a time)
-│  (per job)      │  No delay, connection pool limited
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Dynamic CSV    │  Automatically adds new columns
-│  31+ fields     │  UTF-8 encoded
-└─────────────────┘
+role
+HR Manager
+Data Analyst
+Ecommerce Manager
 ```
 
-### Features
+**Broad single-word roles will still return a lot of results.** `Manager` or `Executive` alone match a huge share of all bdjobs postings — that's not something this script can narrow further, it's genuinely how common those words are in job titles. Use more specific multi-word phrases (e.g. "HR Manager" rather than "Manager") if you want a tighter list.
 
-- **Dynamic CSV Columns**: Automatically detects and adds new API fields
-- **Concurrent Requests**: Processes jobs in parallel batches of 20
-- **Connection Pooling**: Max 5 concurrent connections to prevent overwhelming the API
-- **Retry Mechanism**: Up to 10 automatic retries for failed requests
-- **HTML Stripping**: Cleans HTML tags from API responses for readable CSV output
-- **Progress Tracking**: Real-time feedback during scraping
-- **Memory Efficient**: Processes jobs in batches, doesn't load all data at once
+## Verification status
 
-### Data Extracted (31+ fields)
+Confirmed **live**, directly against `gateway.bdjobs.com`, not guessed:
 
-- Job info: ID, title, nature (full-time/part-time), workplace, context
-- Company: name, business, address, website, logo
-- Requirements: education, experience, skills, age, gender, additional requirements
-- Compensation: salary range, min/max salary, other benefits
-- Application: deadlines, instructions, online apply option, email/URL
-- Location: job location
-- Dates: posted date, deadline
+- The list endpoint takes a real `keyword=` search parameter and filters server-side
+- Every search result already includes `Jobid`, `jobTitle`, `companyName`, and `publishDate` inline — no per-job Details API call needed (you should see "Jobs needing a Details API lookup: 0" on every run)
+- The public job-detail URL format: `https://bdjobs.com/h/details/{job_id}?ln=1`
 
-### Rate Limiting Strategy
+Still unverified (kept as a defensive fallback only, shouldn't matter in normal use): the Details API's own field names, sourced from the original repo's code rather than a live call. If you ever see a non-zero "Details API lookup" count and results looking off, that fallback path is where to check first.
 
-We experimented with different rate limits and found:
-- List API: 0.25s delay is safe and fast
-- Details API: No delay needed with connection pooling (max 5 concurrent)
-- Batch processing prevents overwhelming the server
+## Scheduling
 
-### Error Handling
+Linux/Mac cron, daily at 7am:
 
-- Network errors: Automatic retry up to 10 times
-- Invalid responses: Logged and skipped
-- Failed jobs tracked separately for batch retry
+```
+0 7 * * * cd /path/to/script && /usr/bin/python3 bdjobs_ecommerce_scraper.py
+```
 
-### CSV Output
+Windows Task Scheduler: daily trigger running `python bdjobs_ecommerce_scraper.py`.
 
-- UTF-8 encoding for Bengali characters
-- Dynamically generated columns (future-proof for new API fields)
-- Alphabetically sorted columns for consistency
-- HTML tags stripped for readability
+## Terms of service
 
-## Contributing
-
-This project is for educational purposes. If you find issues or improvements, feel free to open an issue or PR.
-
-## License
-
-Educational use only. Respect BDJobs.com's terms of service.
+This calls bdjobs' own public API with no authentication and no bot-detection bypass, but it's still unofficial. Keep run frequency reasonable (daily, not continuous polling) and respect bdjobs.com's Terms of Service.
